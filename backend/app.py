@@ -67,9 +67,9 @@ def gemini_generate(req: Chat):
         'contents':[{'role':'user','parts':parts}],
         'generationConfig':{'temperature':0.7}
     }).encode('utf-8')
-    url=f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
+    url=f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
     try:
-        req_http=urllib.request.Request(url,data=payload,headers={'Content-Type':'application/json'},method='POST')
+        req_http=urllib.request.Request(url,data=payload,headers={'Content-Type':'application/json','x-goog-api-key':key},method='POST')
         with urllib.request.urlopen(req_http,timeout=120) as response:
             data=json.loads(response.read().decode('utf-8'))
         answer=''.join(p.get('text','') for p in data.get('candidates',[{}])[0].get('content',{}).get('parts',[])).strip()
@@ -170,12 +170,12 @@ def chat_ollama(req: Chat):
     except Exception as e:
         raise HTTPException(502, detail=f'Ollama request failed: {str(e)[:1200]}')
 
-app=FastAPI(title='Anja',version='2.0.0')
+app=FastAPI(title='Anja',version='2.1.0')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['*'],allow_headers=['*'])
 
 @app.get('/health')
 def health():
-    return {'ok':True,'service':'anja','provider':os.getenv('ANJA_PROVIDER','ollama')}
+    return {'ok':True,'service':'anja','provider':os.getenv('ANJA_PROVIDER','gemini')}
 
 @app.get('/')
 def home():
@@ -222,7 +222,7 @@ def chat(req:Chat):
     if provider == 'openai':
         c=openai_client()
         if not c:
-            raise HTTPException(503,'OpenAI is not configured. Set ANJA_PROVIDER=ollama for the free local mode.')
+            raise HTTPException(503,'OpenAI is not configured. Set ANJA_PROVIDER=gemini for the free cloud mode.')
         content=[{'type':'input_text','text':req.message}]
         for fid in req.attachment_ids:
             found=list(UPLOADS.glob(fid+'*'))
