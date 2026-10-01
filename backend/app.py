@@ -170,12 +170,12 @@ def chat_ollama(req: Chat):
     except Exception as e:
         raise HTTPException(502, detail=f'Ollama request failed: {str(e)[:1200]}')
 
-app=FastAPI(title='Anja',version='2.1.0')
+app=FastAPI(title='Anja',version='2.1.1')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['*'],allow_headers=['*'])
 
 @app.get('/health')
 def health():
-    return {'ok':True,'service':'anja','provider':os.getenv('ANJA_PROVIDER','gemini')}
+    return {'ok':True,'service':'anja','provider':os.getenv('ANJA_PROVIDER','gemini').strip().lower()}
 
 @app.get('/')
 def home():
@@ -212,7 +212,7 @@ async def upload(files:list[UploadFile]=File(...)):
 
 @app.post('/api/chat')
 def chat(req:Chat):
-    provider=os.getenv('ANJA_PROVIDER','ollama').lower()
+    provider=os.getenv('ANJA_PROVIDER','gemini').strip().lower()
 
     if provider == 'gemini':
         answer,model=gemini_generate(req)
