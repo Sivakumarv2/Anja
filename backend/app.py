@@ -69,9 +69,18 @@ def chat(req:Chat):
             content.append({'type':'input_file','file_data':f'data:{mime};base64,{raw}','filename':p.name})
     prior='\n'.join('- '+x['text'] for x in memories()[-8:])
     content.append({'type':'input_text','text':'Relevant Anja memory:\n'+(prior or '(none)')})
-    response=c.responses.create(model=os.getenv('ANJA_MODEL','gpt-5'),instructions='You are Anja, an adaptive multimodal AI assistant. Answer directly, analyze supplied images/files, and never pretend you accessed information you did not receive.',input=[{'role':'user','content':content}])
+    try:
+        response=c.responses.create(
+            model=os.getenv('ANJA_MODEL','gpt-5'),
+            instructions='You are Anja, an adaptive multimodal AI assistant. Answer directly, analyze supplied images/files, and never pretend you accessed information you did not receive.',
+            input=[{'role':'user','content':content}]
+        )
+        answer=response.output_text
+    except Exception as e:
+        msg=str(e).replace(os.getenv('OPENAI_API_KEY',''), '[REDACTED]')
+        raise HTTPException(status_code=502, detail=f'OpenAI request failed: {msg[:1200]}')
     remember(req.message)
-    return {'answer':response.output_text,'provider':'openai','memory':len(memories())}
+    return {'answer':answer,'provider':'openai','memory':len(memories())}
 
 @app.delete('/api/memory')
 def clear(): MEM.write_text('[]'); return {'ok':True}
