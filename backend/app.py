@@ -27,8 +27,12 @@ def client():
     key=os.getenv('OPENAI_API_KEY','').strip()
     return OpenAI(api_key=key) if key else None
 
-app=FastAPI(title='Anja',version='1.2.0')
+app=FastAPI(title='Anja',version='1.2.1')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['*'],allow_headers=['*'])
+
+@app.get('/health')
+def health():
+    return {'ok':True,'service':'anja'}
 
 @app.get('/')
 def home(): return FileResponse(ROOT/'frontend'/'index.html')
