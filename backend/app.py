@@ -37,6 +37,51 @@ def openai_client():
     key=os.getenv('OPENAI_API_KEY','').strip()
     return OpenAI(api_key=key) if key else None
 
+
+def gemini_key():
+    return os.getenv('GEMINI_API_KEY','').strip()
+
+def gemini_generate(req: Chat):
+    key=gemini_key()
+    if not key:
+        raise HTTPException(503,'Gemini is not configured. Add GEMINI_API_KEY in Railway Variables.')
+    model=os.getenv('GEMINI_MODEL','gemini-2.5-flash-lite')
+    parts=[{'text':req.message}]
+    prior='\n'.join('- '+x['text'] for x in memories()[-8:])
+    parts.append({'text':'Relevant Anja memory:\n'+(prior or '(none)')})
+    for fid in req.attachment_ids:
+        found=list(UPLOADS.glob(fid+'*'))
+        if not found:
+            continue
+        p=found[0]
+        mime=mimetypes.guess_type(p.name)[0] or 'application/octet-stream'
+        raw=base64.b64encode(p.read_bytes()).decode('ascii')
+        if mime.startswith('image/'):
+            parts.append({'inline_data':{'mime_type':mime,'data':raw}})
+        else:
+            extracted=extract_file_text(p,mime)
+            if extracted:
+                parts.append({'text':f'--- File: {p.name} ---\n{extracted}'})
+    payload=json.dumps({
+        'system_instruction':{'parts':[{'text':'You are Anja, an adaptive multimodal AI assistant. Answer directly and clearly. Analyze supplied files/images when present. Never claim to have accessed information you did not receive. Provide useful conclusions and steps, not hidden chain-of-thought.'}]},
+        'contents':[{'role':'user','parts':parts}],
+        'generationConfig':{'temperature':0.7}
+    }).encode('utf-8')
+    url=f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
+    try:
+        req_http=urllib.request.Request(url,data=payload,headers={'Content-Type':'application/json'},method='POST')
+        with urllib.request.urlopen(req_http,timeout=120) as response:
+            data=json.loads(response.read().decode('utf-8'))
+        answer=''.join(p.get('text','') for p in data.get('candidates',[{}])[0].get('content',{}).get('parts',[])).strip()
+        if not answer:
+            raise RuntimeError(json.dumps(data)[:1200])
+        return answer,model
+    except urllib.error.HTTPError as e:
+        body=e.read().decode('utf-8','ignore')[:1200]
+        raise HTTPException(502,detail=f'Gemini request failed (HTTP {e.code}): {body}')
+    except Exception as e:
+        raise HTTPException(502,detail=f'Gemini request failed: {str(e)[:1200]}')
+
 def ollama_url(path=''):
     return os.getenv('OLLAMA_BASE_URL','http://127.0.0.1:11434').rstrip('/') + path
 
@@ -138,7 +183,10 @@ def home():
 
 @app.get('/api/status')
 def status():
-    provider=os.getenv('ANJA_PROVIDER','ollama').lower()
+    provider=os.getenv('ANJA_PROVIDER','gemini').lower()
+    if provider == 'gemini':
+        configured=bool(gemini_key())
+        return {'name':'Anja','status':'online','provider':'gemini' if configured else 'gemini_not_configured','model':os.getenv('GEMINI_MODEL','gemini-2.5-flash-lite'),'memory':len(memories())}
     if provider == 'openai':
         configured=bool(os.getenv('OPENAI_API_KEY','').strip())
         return {'name':'Anja','status':'online','provider':'openai' if configured else 'openai_not_configured','model':os.getenv('ANJA_MODEL','gpt-5'),'memory':len(memories())}
@@ -165,6 +213,11 @@ async def upload(files:list[UploadFile]=File(...)):
 @app.post('/api/chat')
 def chat(req:Chat):
     provider=os.getenv('ANJA_PROVIDER','ollama').lower()
+
+    if provider == 'gemini':
+        answer,model=gemini_generate(req)
+        remember(req.message)
+        return {'answer':answer,'provider':'gemini','model':model,'memory':len(memories())}
 
     if provider == 'openai':
         c=openai_client()
